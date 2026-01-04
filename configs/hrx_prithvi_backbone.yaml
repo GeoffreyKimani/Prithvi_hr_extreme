@@ -1,0 +1,25 @@
+hr_extreme:
+  in_channels: 69
+  time_steps: 3
+  height: 320
+  width: 320
+
+encoder:
+  c_hidden: 128
+  c_hidden2: 256
+  c_back_in: 256     # feature channels output by encoder
+  h_p: 80
+  w_p: 80
+
+backbone:
+  # how many Prithvi transformer blocks to eventually unfreeze (for now 0)
+  n_unfrozen_blocks: 0
+
+head:
+  # simple upsampling + 1x1 conv back to 69 channels
+  c_head_hidden: 256
+
+training:
+  batch_size: 4
+  lr: 1.0e-4
+  weight_decay: 1.0e-5

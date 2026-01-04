@@ -1,0 +1,47 @@
+# Ignore the log files
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+*.log
+
+# Environments
+.env
+.venv
+venv/
+.envrc
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data & artifacts
+data/
+*/data/
+hr_extreme_npz/
+*.npz
+*.tar
+*.nc
+*.h5
+*.pt
+*.pth
+*.ckpt
+
+# Outputs
+logs/
+checkpoints/
+outputs/
+runs/
+wandb/
+mlruns/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb

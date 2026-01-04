@@ -1,0 +1,9 @@
+data:
+  hr_extreme_root: "~/scratch/hr_extreme_data"   # where you downloaded HR-Extreme
+  hr_extreme_split: "202007_202012"                             # initial subset
+  prithvi_repo: "~/scratch/Prithvi-WxC"
+  outputs_root: "~/scratch/prithvi_hr_extreme/outputs"
+
+model:
+  prithvi_weights_base: "~/scratch/Prithvi-WxC/data/weights/prithvi.wxc.2300m.v1.pt"
+  prithvi_weights_rollout: "~/scratch/Prithvi-WxC/data/weights/prithvi.wxc.rollout.2300m.v1.pt"
