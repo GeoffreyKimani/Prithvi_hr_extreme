@@ -1,6 +1,6 @@
 hr_extreme:
   in_channels: 69
-  time_steps: 3
+  time_steps: 2
   height: 320
   width: 320
 
@@ -23,3 +23,6 @@ training:
   batch_size: 4
   lr: 1.0e-4
   weight_decay: 1.0e-5
+  num_workers: 4         # if GPU node has CPUs available
+  num_epochs: 5          # start modestly
+  max_steps_per_epoch: 200   # cap to keep runs short while debugging

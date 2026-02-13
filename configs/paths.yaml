@@ -1,9 +1,14 @@
 data:
-  hr_extreme_root: "~/scratch/hr_extreme_data"   # where you downloaded HR-Extreme
-  hr_extreme_split: "202007_202012"                             # initial subset
-  prithvi_repo: "~/scratch/Prithvi-WxC"
-  outputs_root: "~/scratch/prithvi_hr_extreme/outputs"
+  hr_extreme:
+    tiny_train: "~/scratch/hr_extreme_npz/tiny_train_real"
+    train: "~/scratch/hr_extreme_npz/train"
+    val: "~/scratch/hr_extreme_npz/val"
+    test: "~/scratch/hr_extreme_npz/test"
+    prithvi_repo: "~/scratch/Prithvi-WxC"
+    outputs_root: "~/scratch/prithvi_hr_extreme/outputs"
+    stats_path: "~/scratch/hr_extreme_stats/means_stds_hrrr.npz"
 
 model:
+  prithvi_config: "~/scratch/Prithvi-WxC/data/config.yaml"
   prithvi_weights_base: "~/scratch/Prithvi-WxC/data/weights/prithvi.wxc.2300m.v1.pt"
   prithvi_weights_rollout: "~/scratch/Prithvi-WxC/data/weights/prithvi.wxc.rollout.2300m.v1.pt"
