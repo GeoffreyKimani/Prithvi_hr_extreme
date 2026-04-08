@@ -43,7 +43,7 @@ hr_extreme_npz/
 # Outputs
 logs/
 checkpoints/
-# outputs/ # for now we don't ignore
+outputs/ # for now we don't ignore
 runs/
 wandb/
 mlruns/
