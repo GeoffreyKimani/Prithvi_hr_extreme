@@ -1,6 +1,3 @@
-# Ignore the log files
-logs/
-
 # Python
 __pycache__/
 *.pyc
@@ -22,6 +19,15 @@ venv/
 *.swp
 *.swo
 
+# Local caches
+cache/
+http_cache.sqlite
+*.sqlite
+
+# Training / evaluation outputs
+checkpoints/
+slurms/ 
+
 # Data & artifacts
 data/
 */data/
@@ -37,11 +43,10 @@ hr_extreme_npz/
 # Outputs
 logs/
 checkpoints/
-outputs/
+# outputs/ # for now we don't ignore
 runs/
 wandb/
 mlruns/
 
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb
+
+tree.txt

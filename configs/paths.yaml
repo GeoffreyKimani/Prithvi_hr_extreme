@@ -1,14 +1,19 @@
 data:
   hr_extreme:
-    tiny_train: "~/scratch/hr_extreme_npz/tiny_train_real"
-    train: "~/scratch/hr_extreme_npz/train"
-    val: "~/scratch/hr_extreme_npz/val"
-    test: "~/scratch/hr_extreme_npz/test"
     prithvi_repo: "~/scratch/Prithvi-WxC"
     outputs_root: "~/scratch/prithvi_hr_extreme/outputs"
     stats_path: "~/scratch/hr_extreme_stats/means_stds_hrrr.npz"
+    train_root: "~/scratch/hr_extreme_data/20200101_20200630"
+    test_root:  "~/scratch/hr_extreme_data/20200701_20201231"
+  
+  # NEW: locations for Prithvi feature NPZs + their stats
+  prithvi:
+    prithvi_train: "~/scratch/prithvi_features/train"
+    prithvi_val: "~/scratch/prithvi_features/val"
+    prithvi_test:  "~/scratch/prithvi_features/test"
+    prithvi_stats_path: "~/scratch/prithvi_stats/means_stds_prithvi_feats.npz"
 
 model:
-  prithvi_config: "~/scratch/Prithvi-WxC/data/config.yaml"
+  prithvi_config: "~/scratch/prithvi_hr_extreme/configs/prithvi_validation_config.yaml" # Previously before copying "~/scratch/Prithvi-WxC/data/config.yaml"
   prithvi_weights_base: "~/scratch/Prithvi-WxC/data/weights/prithvi.wxc.2300m.v1.pt"
   prithvi_weights_rollout: "~/scratch/Prithvi-WxC/data/weights/prithvi.wxc.rollout.2300m.v1.pt"

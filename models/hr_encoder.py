@@ -18,19 +18,9 @@ class HREncoder(nn.Module):
     - z_in: (B, C_back_in, H_p, W_p), e.g. (B, 256, 80, 80).
     """
 
-    def __init__(
-        self,
-        in_channels: int = 69,
-        time_steps: int = 3,
-        c_hidden: int = 128,
-        c_hidden2: int = 256,
-        c_back_in: int = 256,
-        h_in: int = 320,
-        w_in: int = 320,
-        h_p: int = 80,
-        w_p: int = 80,
-    ):
+    def __init__(self, cfg):
         """
+        The args below are specified from the config file to keep code clean
         Args:
             in_channels: Number of HR-Extreme physical variables (69).
             time_steps: Length of temporal context window (e.g. 3: t-2, t-1, t).
@@ -42,24 +32,20 @@ class HREncoder(nn.Module):
         """
         super().__init__()
 
-        assert time_steps >= 1, "time_steps must be >= 1"
-        self.in_channels = in_channels
-        self.time_steps = time_steps
-        self.h_in = h_in
-        self.w_in = w_in
-        self.h_p = h_p
-        self.w_p = w_p
+        c1 = cfg['encoder']['c_down1']
+        c2 = cfg['encoder']['c_down2']
+        c3 = cfg['encoder']['c_down3']
+        c4 = cfg['encoder']['c_down4']
+        cb = cfg['encoder']['c_bottleneck']
+
+        in_channels = cfg["hr_extreme"]["in_channels"]      # 69
+        time_steps  = cfg["hr_extreme"]["time_steps"]       # 2
 
         # ---- Temporal fusion via 3D convolution ----
-        # We treat the input as (B, C_hr, T, H, W) and use a kernel that spans
-        # the entire temporal dimension to collapse T -> 1.
-        #
-        # Kernel size (time_steps, 1, 1) means:
-        # - Combine information across the T input frames
-        # - Do not mix spatial neighbors yet
+        # x: (B,T,C,H,W) -> (B,C,T,H,W) -> Conv3d over time -> (B,c1,1,H,W)
         self.temporal_conv = nn.Conv3d(
             in_channels=in_channels,
-            out_channels=c_hidden,
+            out_channels=c1,
             kernel_size=(time_steps, 1, 1),
             stride=(1, 1, 1),
             padding=(0, 0, 0),
@@ -67,92 +53,75 @@ class HREncoder(nn.Module):
         )
 
         # Normalization + nonlinearity after temporal fusion
-        self.temporal_norm = nn.BatchNorm3d(c_hidden)
+        self.temporal_norm = nn.BatchNorm3d(c1)
         self.temporal_act = nn.GELU()
 
         # ---- Spatial encoding / downsampling blocks ----
-        # After temporal fusion, we squeeze the time dimension and treat the data
-        # as a 2D feature map (B, C, H, W). We then downsample spatially twice
-        # using stride-2 convolutions to go from H_in,W_in -> H_p,W_p.
-        #
-        # Block 1: (H,W) 320x320 -> 160x160
-        self.spatial_block1 = nn.Sequential(
-            nn.Conv2d(c_hidden, c_hidden2, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(c_hidden2),
-            nn.GELU(),
+        # After temporal fusion we treat data as (B, c1, H, W) and downsample 4 times.
+        
+        # level 1: (H,W) 320x320 -> 160x160
+        self.down1 = nn.Sequential(
+            nn.Conv2d(c1, c1, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c1, c1, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
         )
+        self.pool1 = nn.MaxPool2d(2)
 
-        # Block 2: (H,W) 160x160 -> 80x80
-        self.spatial_block2 = nn.Sequential(
-            nn.Conv2d(c_hidden2, c_hidden2, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(c_hidden2),
-            nn.GELU(),
+        # level 2: (H,W) 160x160 -> 80x80
+        self.down2 = nn.Sequential(
+            nn.Conv2d(c1, c2, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c2, c2, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
         )
+        self.pool2 = nn.MaxPool2d(2)
 
-        # Optional sanity check: confirm that 320 -> 80 given two stride-2 blocks.
-        # This also allows you to swap different input sizes without silent mismatch.
-        with torch.no_grad():
-            dummy = torch.zeros(1, c_hidden, h_in, w_in)
-            dummy = self.spatial_block1(dummy)
-            dummy = self.spatial_block2(dummy)
-            h_out, w_out = dummy.shape[-2], dummy.shape[-1]
-            assert h_out == h_p and w_out == w_p, (
-                f"Downsampling produced ({h_out}, {w_out}) "
-                f"but expected ({h_p}, {w_p}). "
-                "Adjust h_p, w_p or the spatial blocks."
-            )
-
-        # ---- Projection to backbone feature channels ----
-        # Final 1x1 conv maps to C_back_in, which will be the channel dimension
-        # used by the Prithvi backbone adapter/tokenizer.
-        self.to_backbone = nn.Conv2d(
-            c_hidden2,
-            c_back_in,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-            bias=True,
+        # level 3: 80x80 -> 40x40
+        self.down3 = nn.Sequential(
+            nn.Conv2d(c2, c3, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c3, c3, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
         )
+        self.pool3 = nn.MaxPool2d(2)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: HR-Extreme input tensor of shape (B, T, C_hr, H_hr, W_hr).
-               - B: batch size
-               - T: time_steps (e.g., 3)
-               - C_hr: in_channels (69)
-               - H_hr, W_hr: input spatial size (e.g., 320 x 320)
-
-        Returns:
-            z_in: Tensor of shape (B, C_back_in, H_p, W_p),
-                  e.g. (B, 256, 80, 80), ready for the backbone.
-        """
-        # Sanity check shapes
-        assert x.dim() == 5, f"Expected input of shape (B, T, C, H, W), got {x.shape}"
-        b, t, c, h, w = x.shape
-        assert t == self.time_steps, f"Expected time_steps={self.time_steps}, got {t}"
-        assert c == self.in_channels, f"Expected in_channels={self.in_channels}, got {c}"
-        assert h == self.h_in and w == self.w_in, (
-            f"Expected spatial size ({self.h_in}, {self.w_in}), got ({h}, {w})"
+        # level 4: 40x40 -> 20x20
+        self.down4 = nn.Sequential(
+            nn.Conv2d(c3, c4, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c4, c4, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
         )
+        self.pool4 = nn.MaxPool2d(2)
 
-        # Rearrange to (B, C_hr, T, H, W) for Conv3d
-        x_3d = x.permute(0, 2, 1, 3, 4).contiguous()
+        # bottleneck
+        self.bottleneck = nn.Sequential(
+            nn.Conv2d(c4, cb, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(cb, cb, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        self.out_channels = cb
 
-        # Temporal fusion: (B, C_hr, T, H, W) -> (B, c_hidden, 1, H, W)
-        x_3d = self.temporal_conv(x_3d)
-        x_3d = self.temporal_norm(x_3d)
-        x_3d = self.temporal_act(x_3d)
+    def forward(self, x):
+        # x: (B, T, C_hr, H, W)
+        B, T, C, H, W = x.shape
 
-        # Remove the singleton time dimension: (B, c_hidden, 1, H, W) -> (B, c_hidden, H, W)
-        x_2d = x_3d.squeeze(2)
+        # (B, C_hr, T, H, W)
+        x = x.permute(0, 2, 1, 3, 4)
 
-        # Spatial encoding / downsampling:
-        # (B, c_hidden, H, W) -> (B, c_hidden2, H/2, W/2) -> (B, c_hidden2, H/4, W/4)
-        x_2d = self.spatial_block1(x_2d)
-        x_2d = self.spatial_block2(x_2d)
+        # temporal fusion: (B, 69, T, H, W) -> (B, c1, 1, H, W)
+        x = self.temporal_conv(x)
+        x = self.temporal_norm(x)
+        x = self.temporal_act(x)
+        x = x.squeeze(2)          # (B, c1, H, W)
 
-        # Project to backbone input channels: (B, c_hidden2, H_p, W_p) -> (B, c_back_in, H_p, W_p)
-        z_in = self.to_backbone(x_2d)
+        # spatial encoder with skips
+        x1 = self.down1(x)                     # 320x320
+        x2 = self.down2(self.pool1(x1))        # 160x160 -> 80x80
+        x3 = self.down3(self.pool2(x2))        # 80x80 -> 40x40
+        x4 = self.down4(self.pool3(x3))        # 40x40 -> 20x20
+        bottleneck = self.bottleneck(self.pool4(x4))
 
-        return z_in
+        return bottleneck, (x1, x2, x3, x4)

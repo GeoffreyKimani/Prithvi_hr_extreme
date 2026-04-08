@@ -5,24 +5,44 @@ hr_extreme:
   width: 320
 
 encoder:
-  c_hidden: 128
-  c_hidden2: 256
-  c_back_in: 256     # feature channels output by encoder
-  h_p: 80
-  w_p: 80
+  # UNet-like encoder
+  c_in: 69
+  c_down1: 64
+  c_down2: 128
+  c_down3: 256
+  c_down4: 256
+  c_bottleneck: 256     # feature channels output by encoder
+  h_p: 20 # feature map size
+  w_p: 20
 
 backbone:
   # how many Prithvi transformer blocks to eventually unfreeze (for now 0)
   n_unfrozen_blocks: 0
 
 head:
-  # simple upsampling + 1x1 conv back to 69 channels
-  c_head_hidden: 256
+  # decoder to upsample widths to match encoder
+  c_up3: 256
+  c_up2: 128
+  c_up1: 64
+  c_head_hidden: 64
 
 training:
+  experiment_name: "unet_prithvi_exloss"   # one of:
+                                        # "unet_plain"
+                                        # "unet_prithvi_mse"
+                                        # "unet_prithvi_tail"
+                                        # "unet_prithvi_exloss"
+
   batch_size: 4
-  lr: 1.0e-4
+  lr: 3.0e-4 #5.0e-4 #1.0e-4
   weight_decay: 1.0e-5
-  num_workers: 4         # if GPU node has CPUs available
-  num_epochs: 5          # start modestly
-  max_steps_per_epoch: 200   # cap to keep runs short while debugging
+  num_workers: 4         
+  num_epochs: 40          # start modestly (was 15)
+  max_steps_per_epoch: 200 
+  alpha_tail: 2.0        # for tail-weighted
+  
+  # for exloss-style
+  beta_exloss: 1.0       
+  exloss_q_low: 0.10
+  exloss_q_high: 0.90
+  exloss_alpha: 0.1

@@ -4,6 +4,8 @@ import numpy as np
 
 SRC_DIR = Path("~/scratch/hr_extreme_data/202007_202012").expanduser()
 OUT_DIR = Path("~/scratch/hr_extreme_npz/all").expanduser()
+# SRC_DIR = Path("~/scratch/hr_extreme_data/20200101_20200630").expanduser()
+# OUT_DIR = Path("~/scratch/new_hr_extreme_npz/train").expanduser()
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -85,7 +87,7 @@ def main():
                 out_path = OUT_DIR / f"sample_{count:07d}.npz"
                 np.savez_compressed(
                     out_path,
-                    x=x,
+                    x=x, # todo: change back to "inputs" 
                     y=y,
                     mask=mask,
                 )

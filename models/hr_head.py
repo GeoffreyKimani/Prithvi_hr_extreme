@@ -4,53 +4,74 @@ import torch.nn.functional as F
 
 
 class HRHead(nn.Module):
-    """
-    Simple decoder/head that maps backbone features back to
-    HR-Extreme resolution and channels.
-
-    Input:  (B, C_back_in, H_p, W_p)
-    Output: (B, 69, 320, 320)
-    """
-
-    def __init__(
-        self,
-        c_back_in: int = 256,
-        c_head_hidden: int = 256,
-        h_p: int = 80,
-        w_p: int = 80,
-        h_out: int = 320,
-        w_out: int = 320,
-        out_channels: int = 69,
-    ):
+    def __init__(self, cfg):
         super().__init__()
-        self.h_p = h_p
-        self.w_p = w_p
-        self.h_out = h_out
-        self.w_out = w_out
+        c1 = cfg["encoder"]["c_down1"]
+        c2 = cfg["encoder"]["c_down2"]
+        c3 = cfg["encoder"]["c_down3"]
+        c4 = cfg["encoder"]["c_down4"]
+        cb = cfg["encoder"]["c_bottleneck"]
+        c_up3 = cfg["head"]["c_up3"]
+        c_up2 = cfg["head"]["c_up2"]
+        c_up1 = cfg["head"]["c_up1"]
+        c_out = cfg["hr_extreme"]["in_channels"]  # 69
 
-        # Simple conv stack at backbone resolution
-        self.conv = nn.Sequential(
-            nn.Conv2d(c_back_in, c_head_hidden, kernel_size=3, padding=1),
-            nn.BatchNorm2d(c_head_hidden),
-            nn.GELU(),
-            nn.Conv2d(c_head_hidden, c_head_hidden, kernel_size=3, padding=1),
-            nn.BatchNorm2d(c_head_hidden),
-            nn.GELU(),
+        # up from bottleneck 20x20 -> 40x40
+        self.up4 = nn.ConvTranspose2d(cb, c4, kernel_size=2, stride=2)
+        self.dec4 = nn.Sequential(
+            nn.Conv2d(c4 + c4, c_up3, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c_up3, c_up3, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
         )
 
-        # Final 1x1 to 69 channels
-        self.to_out = nn.Conv2d(c_head_hidden, out_channels, kernel_size=1)
-
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
-        # z: (B, C_back_in, H_p, W_p)
-        x = self.conv(z)
-        x = self.to_out(x)  # (B, 69, H_p, W_p)
-
-        # Upsample from (H_p, W_p) -> (320, 320)
-        x = F.interpolate(
-            x,
-            size=(self.h_out, self.w_out),
-            mode="bilinear",
-            align_corners=False,
+        # up from bottleneck 40x40 -> 80x80
+        self.up3 = nn.ConvTranspose2d(c4, c3, kernel_size=2, stride=2)
+        self.dec3 = nn.Sequential(
+            nn.Conv2d(c3 + c3, c_up2, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c_up2, c_up2, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
         )
-        return x
+
+        # 80x80 -> 160x160
+        self.up2 = nn.ConvTranspose2d(c_up2, c2, kernel_size=2, stride=2)
+        self.dec2 = nn.Sequential(
+            nn.Conv2d(c2 + c2, c_up1, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c_up1, c_up1, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+        )
+
+        # 160x160 -> 320x320
+        self.up1 = nn.ConvTranspose2d(c_up1, c1, kernel_size=2, stride=2)
+        self.dec1 = nn.Sequential(
+            nn.Conv2d(c1 + c1, c1, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c1, c1, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+        )
+
+        self.out_conv = nn.Conv2d(c1, c_out, kernel_size=1)
+
+    def forward(self, bottleneck, skips):
+        x1, x2, x3, x4 = skips
+
+        x = self.up4(bottleneck)
+        x = torch.cat([x, x4], dim=1)
+        x = self.dec4(x)
+
+        x = self.up3(x)
+        x = torch.cat([x, x3], dim=1)
+        x = self.dec3(x)
+
+        x = self.up2(x)
+        x = torch.cat([x, x2], dim=1)
+        x = self.dec2(x)
+
+        x = self.up1(x)
+        x = torch.cat([x, x1], dim=1)
+        x = self.dec1(x)
+
+        y_hat = self.out_conv(x)
+        return y_hat
