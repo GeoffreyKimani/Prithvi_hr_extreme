@@ -57,6 +57,7 @@ class HRExtremeDataset(Dataset):
         # retry a few times if we hit a bad file
         for _ in range(3):
             row = self.df.iloc[idx]
+            event_type = row.get("event_type", "")
             path = Path(row["hrx_path"]).expanduser()
 
             if not path.is_file():
@@ -88,6 +89,6 @@ class HRExtremeDataset(Dataset):
                 y_4d = (y_4d - self.mean_x) / self.std_x
                 y = y_4d.squeeze(0)
 
-            return x, y, mask
+            return x, y, mask, event_type
 
         raise RuntimeError(f"Too many malformed samples around index {idx}")
