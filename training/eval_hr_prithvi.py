@@ -19,34 +19,7 @@ from training.train_hr_prithvi import (
     evaluate_rmse_per_variable_phys,
 )
 
-
-def unpack_batch(batch, device):
-    """
-    Unpack a batch from either:
-      - HRExtremeDataset: (x_hr, y, mask)
-      - HRExtremeWithPrithviDataset: (x_hr, feats_prithvi, y, mask, event_type)
-
-    Returns:
-      x_hr, feats_prithvi_or_none, y, mask, event_type_or_none
-    """
-    if len(batch) == 3:
-        x_hr, y, mask = batch
-        feats_prithvi = None
-        event_type = None
-    elif len(batch) == 5:
-        x_hr, feats_prithvi, y, mask, event_type = batch
-    else:
-        raise ValueError(f"Unexpected batch length {len(batch)}")
-
-    x_hr = x_hr.to(device)
-    y    = y.to(device)
-    mask = mask.to(device)
-
-    if feats_prithvi is not None:
-        feats_prithvi = feats_prithvi.to(device)
-
-    return x_hr, feats_prithvi, y, mask, event_type
-
+from training.utils import unpack_batch
 
 def build_model(exp_cfg, model_paths, device, exp_name: str):
     hr_encoder = HREncoder(exp_cfg).to(device)
@@ -105,6 +78,7 @@ def evaluate_test(model, loader, device, mu_y, std_y):
 def evaluate_rmse_per_variable_per_event(model, loader, device, mu, std, out_path):
     """
     Compute per-variable RMSE in physical units, grouped by event_type.
+    Works with both datasets (with and without Prithvi features).
 
     Saves a npz file with:
       - event_types: list of unique event types (strings)
@@ -118,15 +92,12 @@ def evaluate_rmse_per_variable_per_event(model, loader, device, mu, std, out_pat
 
     with torch.no_grad():
         for batch in loader:
-            # batch: (x_hr, feats_prithvi, y, mask, event_type)
-            x_hr, feats_prithvi, y, mask, event_type = batch
+            x_hr, feats_prithvi, y, mask, event_type = unpack_batch(batch, device)
 
-            x_hr = x_hr.to(device)
-            feats_prithvi = feats_prithvi.to(device)
-            y = y.to(device)          # normalized targets
-            mask = mask.to(device)    # (B,H,W)
-
-            y_hat = model(x_hr, feats_prithvi=feats_prithvi)  # (B,C,H,W), normalized
+            if feats_prithvi is None:
+                y_hat = model(x_hr)
+            else:
+                y_hat = model(x_hr, feats_prithvi=feats_prithvi)
 
             # de-normalize to physical units
             m = mu.to(device)   # (1,C,1,1)
@@ -143,6 +114,9 @@ def evaluate_rmse_per_variable_per_event(model, loader, device, mu, std, out_pat
             diff2 = diff2 * mask4
 
             B = y.shape[0]
+            # if event_type is None:
+            #     event_type = ["all"] * B
+
             for b in range(B):
                 et = event_type[b]
                 # sum over spatial dims
@@ -250,11 +224,11 @@ def main():
     np.save(out_dir / "rmse_per_variable_test.npy", rmse_per_var)
 
     # Per-event-type RMSE
-    if exp_name != "unet_plain":
-        per_event_out = out_dir / "rmse_per_variable_per_event_test.npz"
-        evaluate_rmse_per_variable_per_event(
-            model, test_loader, device, mu_y, std_y, per_event_out
-        )
+    # if exp_name != "unet_plain":
+    per_event_out = out_dir / "rmse_per_variable_per_event_test.npz"
+    evaluate_rmse_per_variable_per_event(
+        model, test_loader, device, mu_y, std_y, per_event_out
+    )
 
     print(f"Saved per-variable RMSE to {out_dir/'rmse_per_variable_test.npy'}")
 
