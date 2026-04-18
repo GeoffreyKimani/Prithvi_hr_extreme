@@ -27,17 +27,20 @@ head:
   c_head_hidden: 64
 
 training:
-  experiment_name: "unet_prithvi_exloss"   # one of:
-                                        # "unet_plain"
-                                        # "unet_prithvi_mse"
-                                        # "unet_prithvi_tail"
-                                        # "unet_prithvi_exloss"
+  experiment_name: "unet_prithvi_mse"   # one of:
+                                        # unet_plain_mse
+                                        # unet_plain_tail
+                                        # unet_plain_exloss
+
+                                        # unet_prithvi_mse, # 26
+                                        # unet_prithvi_tail
+                                        # unet_prithvi_exloss
 
   batch_size: 4
   lr: 3.0e-4 #5.0e-4 #1.0e-4
   weight_decay: 1.0e-5
   num_workers: 4         
-  num_epochs: 40          # start modestly (was 15)
+  num_epochs: 50          # start modestly (was 15)
   max_steps_per_epoch: 200 
   alpha_tail: 2.0        # for tail-weighted
   
