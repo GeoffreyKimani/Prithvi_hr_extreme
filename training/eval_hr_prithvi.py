@@ -25,11 +25,14 @@ def build_model(exp_cfg, model_paths, device, exp_name: str):
     hr_encoder = HREncoder(exp_cfg).to(device)
     hr_head    = HRHead(exp_cfg).to(device)
 
-    if exp_name == "unet_plain":
+    use_prithvi = "prithvi" in exp_name
+
+    if not use_prithvi:
         model = HRUNet(hr_encoder, hr_head).to(device)
     else:
         prithvi_backbone = None
         model = HRPrithviModel(hr_encoder, prithvi_backbone, hr_head).to(device)
+
     return model
 
 
@@ -148,6 +151,74 @@ def evaluate_rmse_per_variable_per_event(model, loader, device, mu, std, out_pat
     print(f"Saved per-variable RMSE per event type to {out_path}")
 
 
+def evaluate_rmse_per_variable_per_sample(model, loader, device, mu, std, out_path):
+    """
+    Compute per-sample per-variable RMSE in physical units.
+
+    Saves a npz file with:
+    - sample_indices: [N]
+    - event_types: [N]
+    - rmse: [N, C]
+    - mean_rmse_all_vars: [N]
+    """
+    model.eval()
+    records_rmse = []
+    records_event_type = []
+    records_sample_idx = []
+
+    sample_idx = 0
+
+    with torch.no_grad():
+        for batch in loader:
+            x_hr, feats_prithvi, y, mask, event_type = unpack_batch(batch, device)
+
+            if feats_prithvi is None:
+                y_hat = model(x_hr)
+            else:
+                y_hat = model(x_hr, feats_prithvi=feats_prithvi)
+
+            m = mu.to(device)
+            s = std.to(device)
+            y_hat_phys = y_hat * s + m
+            y_phys = y * s + m
+
+            if mask.dim() == 3:
+                mask4 = mask.unsqueeze(1)
+            else:
+                mask4 = mask
+
+            diff2 = (y_hat_phys - y_phys) ** 2
+            diff2 = diff2 * mask4
+
+            B = y.shape[0]
+
+            for b in range(B):
+                se_sum_b = diff2[b].sum(dim=(1, 2))              # (C,)
+                cnt_b = mask4[b].sum(dim=(1, 2)).clamp(min=1.0)  # (1,) broadcastable to (C,)
+                mse_b = se_sum_b / cnt_b
+                rmse_b = torch.sqrt(mse_b)                       # (C,)
+
+                records_rmse.append(rmse_b.cpu().numpy())
+                records_event_type.append(event_type[b])
+                records_sample_idx.append(sample_idx)
+                sample_idx += 1
+
+    rmse_arr = np.stack(records_rmse, axis=0)  # [N, C]
+    mean_rmse_all = rmse_arr.mean(axis=1)      # [N]
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        out_path,
+        sample_indices=np.array(records_sample_idx),
+        event_types=np.array(records_event_type, dtype=object),
+        rmse=rmse_arr,
+        mean_rmse_all_vars=mean_rmse_all,
+    )
+
+    print(f"Saved per-sample per-variable RMSE to {out_path}")
+
+
 def main():
     # Load paths
     paths_cfg = yaml.safe_load(open("configs/paths.yaml"))
@@ -165,22 +236,34 @@ def main():
     exp_cfg = yaml.safe_load(open("configs/hrx_prithvi_backbone.yaml"))
     eval_cfg = exp_cfg.get("evaluation", {})
     train_cfg = exp_cfg.get("training", {})
-    exp_name = train_cfg.get("experiment_name", "unet_prithvi_mse")
+    exp_name = train_cfg.get("experiment_name", "unet_plain_mse")
+
+    use_prithvi = "prithvi" in exp_name
+
+    if exp_name.endswith("_mse"):
+        loss_name = "mse"
+    elif exp_name.endswith("_tail"):
+        loss_name = "tail"
+    elif exp_name.endswith("_exloss"):
+        loss_name = "exloss"
+    else:
+        raise ValueError(f"Could not infer loss type from experiment_name: {exp_name}")
+
     batch_size = eval_cfg.get("batch_size", 8)
     num_workers = eval_cfg.get("num_workers", 4)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Dataset & DataLoader
-    if exp_name == "unet_plain":
-        test_idx_csv = idx_root / "hrx_prithvi_test.csv"
+    use_prithvi = "prithvi" in exp_name
+
+    if not use_prithvi:
         test_dataset = HRExtremeDataset(
             index_csv=test_idx_csv,
             stats_path=stats_path,
             normalize=True,
         )
     else:
-        test_idx_csv = idx_root / "hrx_prithvi_test.csv"
         test_dataset = HRExtremeWithPrithviDataset(
             index_csv=test_idx_csv,
             stats_path=stats_path,
@@ -230,7 +313,12 @@ def main():
         model, test_loader, device, mu_y, std_y, per_event_out
     )
 
-    print(f"Saved per-variable RMSE to {out_dir/'rmse_per_variable_test.npy'}")
+    # Per-sample RMSE (for paired statistical testing)
+    per_sample_out = out_dir / "rmse_per_variable_per_sample_test.npz"
+    evaluate_rmse_per_variable_per_sample(
+        model, test_loader, device, mu_y, std_y, per_sample_out
+    )
+
 
 if __name__ == "__main__":
     main()
