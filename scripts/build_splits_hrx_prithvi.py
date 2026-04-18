@@ -45,7 +45,7 @@ def add_paths_and_filter(df: pd.DataFrame, split: str) -> pd.DataFrame:
 def time_stratified_event_split(df, val_frac=0.2):
     """
     For each event_type, hold out the last val_frac (by datetime) as validation.
-    Returns train_mask, val_mask aligned with df.index.
+    Returns test_mask, val_mask aligned with df.index.
     """
     if not pd.api.types.is_datetime64_any_dtype(df["datetime"]):
         df = df.copy()
@@ -65,35 +65,32 @@ def time_stratified_event_split(df, val_frac=0.2):
 
     val_indices = set(val_indices)
     val_mask = df.index.isin(val_indices)
-    train_mask = ~val_mask
-    return train_mask, val_mask
+    test_mask = ~val_mask
+    return test_mask, val_mask
 
 
 def main():
     train_df = pd.read_csv(train_idx_path)
     test_df  = pd.read_csv(test_idx_path)
+    print(f"Original train rows: {len(train_df)}, test rows: {len(test_df)}")
 
     train_valid = add_paths_and_filter(train_df, split="train")
     test_valid  = add_paths_and_filter(test_df, split="test")
 
-    # # Time-based train/val split within Jan–Jun:
-    # # e.g. Jan–May = train, June = val
-    # train_mask = train_valid["date"] < "2020-06-01"
-    # val_mask   = (train_valid["date"] >= "2020-06-01") & (train_valid["date"] < "2020-07-01")
-    train_mask, val_mask = time_stratified_event_split(train_valid, val_frac=0.2)
+    test_mask, val_mask = time_stratified_event_split(test_valid, val_frac=0.2)
 
-    final_train = train_valid[train_mask].copy()
-    final_val   = train_valid[val_mask].copy()
+    final_test = test_valid[test_mask].copy()
+    final_val   = test_valid[val_mask].copy()
 
-    final_train["split"] = "train"
+    train_valid["split"] = "train"
+    final_test["split"]  = "test"
     final_val["split"]   = "val"
-    test_valid["split"]  = "test"
 
-    final_train.to_csv(out_train_csv, index=False)
+    train_valid.to_csv(out_train_csv, index=False)
+    final_test.to_csv(out_test_csv, index=False)
     final_val.to_csv(out_val_csv, index=False)
-    test_valid.to_csv(out_test_csv, index=False)
 
-    print(f"Train rows: {len(final_train)}, Val rows: {len(final_val)}, Test rows: {len(test_valid)}")
+    print(f"Train rows: {len(train_valid)}, Val rows: {len(final_val)}, Test rows: {len(final_test)}")
 
 
 if __name__ == "__main__":
