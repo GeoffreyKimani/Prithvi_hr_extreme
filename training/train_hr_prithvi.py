@@ -16,6 +16,8 @@ from datasets.hr_extreme_dataset import HRExtremeDataset
 from datasets.hr_extreme_prithvi_dataset import HRExtremeWithPrithviDataset
 from training.losses import masked_mse, tail_weighted_mse_all, evaluate, evaluate_rmse_physical, evaluate_rmse_per_variable_phys, exloss_simplified
 
+from training.utils import unpack_batch
+
 
 def save_checkpoint(path, model, optimizer, scheduler, epoch, best_val_loss=None):
     state = {
@@ -47,7 +49,18 @@ def main():
 
     exp_cfg = yaml.safe_load(open("configs/hrx_prithvi_backbone.yaml"))
     train_cfg = exp_cfg["training"]
-    exp_name = train_cfg.get("experiment_name", "unet_prithvi_mse")
+    exp_name = train_cfg.get("experiment_name", "unet_plain_mse")
+
+    use_prithvi = "prithvi" in exp_name
+
+    if exp_name.endswith("_mse"):
+        loss_name = "mse"
+    elif exp_name.endswith("_tail"):
+        loss_name = "tail"
+    elif exp_name.endswith("_exloss"):
+        loss_name = "exloss"
+    else:
+        raise ValueError(f"Could not infer loss type from experiment_name: {exp_name}")
 
     num_epochs = train_cfg.get("num_epochs", 1)
     max_steps = train_cfg.get("max_steps_per_epoch", None)
@@ -69,8 +82,7 @@ def main():
     train_idx_csv = idx_root / "hrx_prithvi_train.csv"
     val_idx_csv   = idx_root / "hrx_prithvi_val.csv"
     
-    if exp_name == "unet_plain":
-        # HR-Extreme only (no Prithvi features)
+    if not use_prithvi:
         train_dataset = HRExtremeDataset(
             index_csv=train_idx_csv,
             stats_path=stats_path,
@@ -110,7 +122,7 @@ def main():
     hr_encoder = HREncoder(exp_cfg).to(device)
     hr_head    = HRHead(exp_cfg).to(device)
 
-    if exp_name == "unet_plain":
+    if not use_prithvi:
         # plain HR-only U-Net
         model = HRUNet(hr_encoder, hr_head).to(device)
     else:
@@ -164,13 +176,7 @@ def main():
         n_batches = 0
 
         for step, batch in enumerate(train_loader):
-            if exp_name == "unet_plain":
-                # Dataset returns (x_hr, y, mask)
-                x_hr, y, mask = batch
-            else:
-                # Dataset returns (x_hr, feats_prithvi, y, mask, event_type)
-                x_hr, feats_prithvi, y, mask, _event_type = batch
-                feats_prithvi = feats_prithvi.to(device)
+            x_hr, feats_prithvi, y, mask, _event_type = unpack_batch(batch, device)
 
             x_hr = x_hr.to(device)
             y    = y.to(device)
@@ -178,20 +184,20 @@ def main():
 
             optimizer.zero_grad()
 
-            if exp_name == "unet_plain":
-                y_hat = model(x_hr)  # ignore feats_prithvi
+            if feats_prithvi is None:
+                y_hat = model(x_hr)
             else:
+                feats_prithvi = feats_prithvi.to(device)
                 y_hat = model(x_hr, feats_prithvi=feats_prithvi)
 
-            # Select loss
-            if exp_name in ("unet_plain", "unet_prithvi_mse"):
+            if loss_name == "mse":
                 loss = masked_mse(y_hat, y, mask=mask)
-            elif exp_name == "unet_prithvi_tail":
+            elif loss_name == "tail":
                 loss = tail_weighted_mse_all(y_hat, y, mask, q_high, alpha=alpha_tail)
-            elif exp_name == "unet_prithvi_exloss":
+            elif loss_name == "exloss":
                 loss = exloss_simplified(y_hat, y, mask, q_high, beta=beta_exloss)
             else:
-                raise ValueError(f"Unknown experiment_name: {exp_name}")
+                raise ValueError(f"Unknown loss_name: {loss_name}")
 
             loss.backward()
             optimizer.step()
